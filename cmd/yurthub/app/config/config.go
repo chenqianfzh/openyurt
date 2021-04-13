@@ -71,8 +71,8 @@ func parseRemoteServers(serverAddr string) ([]*url.URL, error) {
 		}
 		if u.Scheme == "" {
 			u.Scheme = "https"
-		} else if u.Scheme != "https" {
-			return us, fmt.Errorf("only https scheme is supported for server address(%s)", serverAddr)
+		} else if u.Scheme != "https" && u.Scheme != "http" {
+			return us, fmt.Errorf("only https/http scheme is supported for server address(%s)", serverAddr)
 		}
 		us = append(us, u)
 		remoteServers = append(remoteServers, u.String())

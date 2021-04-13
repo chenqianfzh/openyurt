@@ -18,6 +18,8 @@ package certificate
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,6 +80,11 @@ func (cmr *CertificateManagerRegistry) New(name string, cfg *config.YurtHubConfi
 
 	cm.Start()
 	err = wait.PollImmediate(5*time.Second, 4*time.Minute, func() (bool, error) {
+		if strings.ToLower(os.Getenv("ARKTOS_WORKER_NODE")) == "true" {
+			klog.Infof("It is an arktos worker node...")
+			return true, nil
+		}
+
 		curr := cm.Current()
 		if curr != nil {
 			return true, nil

@@ -21,7 +21,9 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,11 +92,16 @@ func NewKubeletCertManager(cfg *config.YurtHubConfiguration, period time.Duratio
 		}
 	}
 
+	caFile := defaultCaFile
+	if strings.ToLower(os.Getenv("ARKTOS_WORKER_NODE")) == "true" {
+		caFile = "/tmp/arktos/client-ca.crt"
+	}
+
 	return &kubeletCertManager{
 		pairFile:           pairFile,
 		cert:               cert,
 		remoteServers:      cfg.RemoteServers,
-		caFile:             defaultCaFile,
+		caFile:             caFile,
 		certVerifyDuration: period,
 		stopCh:             make(chan struct{}),
 	}, nil

@@ -23,7 +23,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/url"
+	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -193,6 +195,17 @@ func (ycm *yurtHubCertManager) Update(cfg *config.YurtHubConfiguration) error {
 
 // GetRestConfig get rest client config from hub agent conf file.
 func (ycm *yurtHubCertManager) GetRestConfig() *restclient.Config {
+
+	if strings.ToLower(os.Getenv("ARKTOS_WORKER_NODE")) == "true" {
+		kubeletConfigFile := "/tmp/arktos/kubelet.kubeconfig"
+		config, err := util.LoadRESTClientConfig(kubeletConfigFile)
+		if err != nil {
+			klog.Errorf("could not get rest config for %s, %v", kubeletConfigFile, err)
+			return nil
+		}
+		return config
+	}
+
 	healthyServer := ycm.getHealthyServer()
 	if healthyServer == nil {
 		klog.Infof("all of remote servers are unhealthy, so return nil for rest config")
@@ -236,6 +249,46 @@ func (ycm *yurtHubCertManager) NotExpired() bool {
 	return ycm.Current() != nil
 }
 
+func (ycm *yurtHubCertManager) getClusterKubeconfig() (*clientcmdapi.Config, error) {
+
+	if strings.ToLower(os.Getenv("ARKTOS_WORKER_NODE")) == "true" {
+		klog.Infof("It is an arktos worker node...")
+		kubeconfigData, err := ioutil.ReadFile("/tmp/arktos/kubelet.kubeconfig")
+		if err != nil {
+			return nil, err
+		}
+
+		klog.Infof("obtained arktos worker node kubelet kubeconfig...")
+		return clientcmd.Load(kubeconfigData)
+	}
+
+	insecureRestConfig, err := createInsecureRestClientConfig(ycm.getHealthyServer())
+	if err != nil {
+		klog.Errorf("could not create insecure rest config, %v", err)
+		return nil, err
+	}
+
+	insecureClient, err := clientset.NewForConfig(insecureRestConfig)
+	if err != nil {
+		klog.Errorf("could not new insecure client, %v", err)
+		return nil, err
+	}
+
+	// make sure configMap kube-public/cluster-info in k8s cluster beforehand
+	insecureClusterInfo, err := insecureClient.CoreV1().ConfigMaps(metav1.NamespacePublic).Get(ClusterInfoName, metav1.GetOptions{})
+	if err != nil {
+		klog.Errorf("failed to get cluster-info configmap, %v", err)
+		return nil, err
+	}
+
+	kubeconfigStr, ok := insecureClusterInfo.Data[KubeconfigName]
+	if !ok || len(kubeconfigStr) == 0 {
+		return nil, fmt.Errorf("no kubeconfig in cluster-info configmap of kube-public namespace")
+	}
+
+	return clientcmd.Load([]byte(kubeconfigStr))
+}
+
 // initCaCert create ca file for hub certificate manager
 func (ycm *yurtHubCertManager) initCaCert() error {
 	caFile := ycm.getCaFile()
@@ -251,33 +304,9 @@ func (ycm *yurtHubCertManager) initCaCert() error {
 		klog.Infof("%s file not exists, so create it", caFile)
 	}
 
-	insecureRestConfig, err := createInsecureRestClientConfig(ycm.getHealthyServer())
+	kubeConfig, err := ycm.getClusterKubeconfig()
 	if err != nil {
-		klog.Errorf("could not create insecure rest config, %v", err)
 		return err
-	}
-
-	insecureClient, err := clientset.NewForConfig(insecureRestConfig)
-	if err != nil {
-		klog.Errorf("could not new insecure client, %v", err)
-		return err
-	}
-
-	// make sure configMap kube-public/cluster-info in k8s cluster beforehand
-	insecureClusterInfo, err := insecureClient.CoreV1().ConfigMaps(metav1.NamespacePublic).Get(ClusterInfoName, metav1.GetOptions{})
-	if err != nil {
-		klog.Errorf("failed to get cluster-info configmap, %v", err)
-		return err
-	}
-
-	kubeconfigStr, ok := insecureClusterInfo.Data[KubeconfigName]
-	if !ok || len(kubeconfigStr) == 0 {
-		return fmt.Errorf("no kubeconfig in cluster-info configmap of kube-public namespace")
-	}
-
-	kubeConfig, err := clientcmd.Load([]byte(kubeconfigStr))
-	if err != nil {
-		return fmt.Errorf("could not load kube config string, %v", err)
 	}
 
 	if len(kubeConfig.Clusters) != 1 {
@@ -360,6 +389,11 @@ func (ycm *yurtHubCertManager) initClientCertificateManager() error {
 // getBootstrapClientConfig get rest client config from bootstrap conf file.
 // and when no bearer token in bootstrap conf file, kubelet.conf will be used instead.
 func (ycm *yurtHubCertManager) getBootstrapClientConfig(healthyServer *url.URL) (*restclient.Config, error) {
+	if strings.ToLower(os.Getenv("ARKTOS_WORKER_NODE")) == "true" {
+		kubeletConfigFile := "/tmp/arktos/kubelet.kubeconfig"
+		return util.LoadRESTClientConfig(kubeletConfigFile)
+	}
+
 	restCfg, err := util.LoadRESTClientConfig(ycm.getBootstrapConfFile())
 	if err != nil {
 		klog.Errorf("could not load rest client config from bootstrap file(%s), %v", ycm.getBootstrapConfFile(), err)
@@ -379,6 +413,10 @@ func (ycm *yurtHubCertManager) getBootstrapClientConfig(healthyServer *url.URL) 
 }
 
 func (ycm *yurtHubCertManager) generateCertClientFn(current *tls.Certificate) (certificatesclient.CertificateSigningRequestInterface, error) {
+	/*if strings.ToLower(os.Getenv("ARKTOS_WORKER_NODE")) == "true" {
+		return nil, nil
+	}*/
+
 	var cfg *restclient.Config
 	var healthyServer *url.URL
 	hubConfFile := ycm.getHubConfFile()
@@ -410,6 +448,8 @@ func (ycm *yurtHubCertManager) generateCertClientFn(current *tls.Certificate) (c
 			bootstrapClientConfig, err := ycm.getBootstrapClientConfig(healthyServer)
 			if err != nil {
 				klog.Errorf("could not load bootstrap config in clientFn, %v", err)
+				fmt.Printf("\n --------------------------------- \n")
+				debug.PrintStack()
 				return false, nil
 			}
 

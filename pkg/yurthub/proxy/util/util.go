@@ -146,6 +146,12 @@ func (wrw *wrapperResponseWriter) WriteHeader(statusCode int) {
 // WithRequestTrace used to trace status code and handle time for request.
 func WithRequestTrace(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+
+		url := req.URL.Path
+
+		req.URL.Path = strings.ReplaceAll(url, "/tenants/system", "")
+		req.URL.Path = strings.ReplaceAll(url, "/tenants/all", "")
+
 		info, ok := apirequest.RequestInfoFrom(req.Context())
 		client, _ := util.ClientComponentFrom(req.Context())
 		if ok && info.IsResourceRequest {

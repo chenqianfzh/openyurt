@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/openyurtio/openyurt/pkg/yurthub/cachemanager"
@@ -163,7 +165,8 @@ func (lb *loadBalancer) IsHealthy() bool {
 	// have at least one healthy remote server,
 	// load balancer can proxy the request to
 	// remote server
-	if lb.certManager.NotExpired() {
+
+	if lb.certManager.NotExpired() || strings.ToLower(os.Getenv("ARKTOS_WORKER_NODE")) == "true" {
 		for i := range lb.backends {
 			if lb.backends[i].IsHealthy() {
 				return true

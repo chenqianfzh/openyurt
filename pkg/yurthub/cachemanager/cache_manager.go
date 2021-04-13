@@ -25,6 +25,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/openyurtio/openyurt/pkg/yurthub/kubernetes/serializer"
@@ -545,16 +546,19 @@ func (cm *cacheManager) CanCacheFor(req *http.Request) bool {
 		return false
 	}
 
-	canCache, ok := util.ReqCanCacheFrom(ctx)
-	if ok && canCache {
-		// request with Edge-Cache header, continue verification
-	} else {
-		cm.RLock()
-		if _, found := cm.cacheAgents[comp]; !found {
+	//assume that arktos allows edge caching
+	if strings.ToLower(os.Getenv("ARKTOS_WORKER_NODE")) != "true" {
+		canCache, ok := util.ReqCanCacheFrom(ctx)
+		if ok && canCache {
+			// request with Edge-Cache header, continue verification
+		} else {
+			cm.RLock()
+			if _, found := cm.cacheAgents[comp]; !found {
+				cm.RUnlock()
+				return false
+			}
 			cm.RUnlock()
-			return false
 		}
-		cm.RUnlock()
 	}
 
 	info, ok := apirequest.RequestInfoFrom(ctx)
